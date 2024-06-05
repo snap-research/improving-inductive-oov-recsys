@@ -12,6 +12,7 @@ recbole.evaluator.abstract_metric
 #####################################
 """
 
+import numpy as np
 import torch
 from recbole.utils import EvaluatorType
 
@@ -75,7 +76,8 @@ class TopkMetric(AbstractMetric):
             dict: metric values required in the configuration.
         """
         metric_dict = {}
-        avg_result = value.mean(axis=0)
+        nan_rows = np.isnan(value).any(axis=1)
+        avg_result = value[~nan_rows].mean(axis=0)
         for k in self.topk:
             key = "{}@{}".format(metric, k)
             metric_dict[key] = round(avg_result[k - 1], self.decimal_place)

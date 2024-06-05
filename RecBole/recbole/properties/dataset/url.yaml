@@ -56,6 +56,7 @@ amazon-toys-games-18: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatas
 amazon-video-games-18: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/Amazon_ratings/Amazon2018/Amazon_Video_Games.zip
 anime: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/Anime/anime.zip
 avazu: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/Avazu/avazu.zip
+amazon-m2: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/Amazon_M2/amazon_m2.zip
 beeradvocate: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/BeerAdvocate/BeerAdvocate.zip
 behance: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/Behance/Behance.zip
 book-crossing: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/Book-Crossing/book-crossing.zip
@@ -100,6 +101,7 @@ ml-100k: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/MovieLens
 ml-1m: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/MovieLens/ml-1m.zip
 ml-10m: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/MovieLens/ml-10m.zip
 ml-20m: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/MovieLens/ml-20m.zip
+music4all-onion: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/Music4All-Onion/music4all-onion.zip
 netflix: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/Netflix/netflix.zip
 phishing-website: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/Phishing-websites/phishing-website.zip
 pinterest: https://recbole.s3-accelerate.amazonaws.com/ProcessedDatasets/Pinterest/pinterest.zip

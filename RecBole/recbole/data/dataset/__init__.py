@@ -4,3 +4,4 @@ from recbole.data.dataset.kg_dataset import KnowledgeBasedDataset
 from recbole.data.dataset.kg_seq_dataset import KGSeqDataset
 from recbole.data.dataset.decisiontree_dataset import DecisionTreeDataset
 from recbole.data.dataset.customized_dataset import *
+from recbole.data.dataset.inductive_dataset import InductiveDataset
