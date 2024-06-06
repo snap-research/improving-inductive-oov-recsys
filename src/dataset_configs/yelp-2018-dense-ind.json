@@ -1,0 +1,72 @@
+{
+    "load_col": {
+        "inter": [
+            "user_id",
+            "item_id",
+            "timestamp"
+        ],
+        "user": [
+            "user_id",
+            "user_name",
+            "elite",
+            "user_review_count",
+            "yelping_since",
+            "user_useful",
+            "user_funny",
+            "user_cool",
+            "fans",
+            "compliment_hot",
+            "compliment_more",
+            "compliment_profile",
+            "compliment_cute",
+            "compliment_list",
+            "compliment_note",
+            "compliment_plain",
+            "compliment_cool",
+            "compliment_funny",
+            "compliment_writer",
+            "compliment_photos",
+            "average_stars"
+        ],
+        "item": [
+            "item_id",
+            "city",
+            "state",
+            "postal_code",
+            "categories",
+            "is_open",
+            "in_us",
+            "item_review_count",
+            "item_stars",
+            "location_x",
+            "location_y",
+            "location_z",
+            "item_name_vector"
+        ]
+    },
+    "numerical_features": [
+        "user_review_count",
+        "yelping_since",
+        "user_useful",
+        "user_funny",
+        "user_cool",
+        "fans",
+        "compliment_hot",
+        "compliment_more",
+        "compliment_profile",
+        "compliment_cute",
+        "compliment_list",
+        "compliment_note",
+        "compliment_plain",
+        "compliment_cool",
+        "compliment_funny",
+        "compliment_writer",
+        "compliment_photos",
+        "average_stars",
+        "item_review_count",
+        "item_stars",
+        "location_x",
+        "location_y",
+        "location_z"
+    ]
+}

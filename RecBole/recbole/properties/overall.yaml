@@ -114,3 +114,6 @@ shuffled_eval_fixed: True
 
 # Whether to evaluate the model using retrieval or ranking metrics.
 model_eval_type: retrieval
+
+# Optional local filesystem or NFS path to save model weights
+nfs_backup_path: /nfs/recsys/run_weights
