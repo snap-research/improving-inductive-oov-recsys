@@ -362,13 +362,6 @@ def create_samplers(config, dataset, built_datasets):
     )
     test_sampler = test_sampler.set_phase("test") if test_sampler else None
 
-    # oov_sampler = _create_sampler(
-    #     dataset,
-    #     built_datasets,
-    #     oov_neg_sample_args["distribution"],
-    #     repeatable,
-    #     base_sampler=base_sampler,
-    # )
-    # oov_sampler = oov_sampler.set_phase("test") if oov_sampler else None
+    # TODO(willshiao): Ideally, we can use a modified sampler here to sample OOV items.
+    # However, I was unable to figure out a good way to do this without major refactoring.
     return train_sampler, valid_sampler, test_sampler
-    # return train_sampler, valid_sampler, test_sampler, oov_sampler

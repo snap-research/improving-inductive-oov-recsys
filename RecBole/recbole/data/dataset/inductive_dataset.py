@@ -5,6 +5,35 @@ from recbole.utils.enum_type import FeatureType
 import torch
 
 class InductiveDataset(Dataset):
+    """
+    Dataset class for inductive recommendation models.
+
+    Args:
+        config (dict): The configuration dictionary.
+        removal_setting (Optional[Literal['remove_old', 'remove_new']]): The removal setting for filtering data. Defaults to None.
+
+    Attributes:
+        remove_old (bool): Flag indicating whether to remove old data.
+        remove_new (bool): Flag indicating whether to remove new data.
+        id2id_mapping (Optional[Dict[str, Dict[int, int]]]): Mapping of IDs from the original dataset to the inductive dataset.
+        train_ufeatures (Optional[Dict[str, torch.Tensor]]): User features for training.
+        train_ifeatures (Optional[Dict[str, torch.Tensor]]): Item features for training.
+        orig_dataset (Optional[Dataset]): The original dataset.
+        USER_ID (str): The field name for user IDs.
+        ITEM_ID (str): The field name for item IDs.
+        feat_name_list (List[str]): List of feature names.
+        field2id_token (Dict[str, Dict[int, int]]): Mapping of field names to ID tokens.
+        field2token_id (Dict[str, Dict[str, int]]): Mapping of field names to token IDs.
+        user_feat (Dict[str, torch.Tensor]): User features.
+        item_feat (Dict[str, torch.Tensor]): Item features.
+        field2type (Dict[str, FeatureType]): Mapping of field names to feature types.
+        inter_feat (Optional[pd.DataFrame]): Intermediate features.
+        benchmark_filename_list (Optional[List[str]]): List of benchmark filenames.
+        file_size_list (List[int]): List of file sizes.
+        time_field (str): The field name for time.
+
+    """
+
     def __init__(self, config, removal_setting: Optional[Literal['remove_old', 'remove_new']] = None):
         self.remove_old = (removal_setting == 'remove_old')
         self.remove_new = (removal_setting == 'remove_new')
@@ -27,14 +56,9 @@ class InductiveDataset(Dataset):
         - Preloading weights initialization
         """
         self.feat_name_list = self._build_feat_name_list()
-        # if self.benchmark_filename_list is None:
         self._data_filtering()
 
         self._remap_ID_all()
-        # if self.remove_old:
-        # self._remove_old_samples()
-        # elif self.remove_new:
-        # self._remove_new_samples()
 
         self._user_item_feat_preparation()
         self._fill_nan()
@@ -43,39 +67,14 @@ class InductiveDataset(Dataset):
         self._discretization()
         self._preload_weight_matrix()
 
-    # def set_id2id_mapping(self, id2id_mapping: Dict[str, Dict[int, int]]):
-    #     self.id2id_mapping = id2id_mapping
-
-    # def set_train_feats(self, train_ufeatures, train_ifeatures):
-    #     self.train_ufeatures = train_ufeatures
-    #     self.train_ifeatures = train_ifeatures
-
     def set_orig_dataset(self, orig_dataset: Dataset):
         self.orig_dataset = orig_dataset
 
     def remap_features(self):
-        # if self.id2id_mapping is None or self.train_ufeatures is None or self.train_ifeatures is None:
-        #     raise ValueError('The id2id_mapping has not been set.')
         if self.orig_dataset is None:
             raise ValueError('The original dataset has not been set.')
         train_ufeatures = self.orig_dataset.user_feat
         train_ifeatures = self.orig_dataset.item_feat
-
-        # compare feature values (before mapping)
-        # for field_name in ('user_id', 'item_id', self.orig_dataset.field2id_token.keys()):
-        #     print('Comparing field:', field_name)
-        #     if field_name in train_ufeatures.columns: # type: ignore
-        #         orig_feats = train_ufeatures[field_name] # type: ignore
-        #         ind_feats = self.user_feat[field_name] # type: ignore
-        #     else:
-        #         orig_feats = train_ifeatures[field_name] # type: ignore
-        #         ind_feats = self.item_feat[field_name] # type: ignore
-        #     orig_mapping = self.orig_dataset.field2id_token[field_name]
-        #     ind_mapping = self.field2id_token[field_name]
-
-        #     orig_vals = [orig_mapping[x] for x in orig_feats]
-        #     ind_vals = [ind_mapping[x] for x in ind_feats]
-        #     print('Equal?: ', np.array_equal(orig_vals, ind_vals[:orig_feats.size(0)]))
 
         cross_feature_mapping = {}
         id2id_mapping = {}
@@ -117,6 +116,7 @@ class InductiveDataset(Dataset):
         assert(self.user_feat is not None and self.item_feat is not None)
         assert(train_ufeatures is not None and train_ifeatures is not None)
 
+        # Adjust feature shapes to ensure they are the same.
         for fname in id2id_mapping.keys():
             if fname in self.user_feat:
                 print('Adjusting user feat:', fname)
@@ -151,10 +151,6 @@ class InductiveDataset(Dataset):
                 print('Skipping feature:', fname)
                 continue
 
-            # if len(ind_feat.size()) >= 2:
-            #     print('feat big, skipping...')
-            #     continue
-
             mismatch_mask = (train_feat[1:] != ind_feat)
             mismatch_vals = ind_feat[mismatch_mask]
             n_mismatches = torch.sum(mismatch_mask).item()
@@ -168,7 +164,6 @@ class InductiveDataset(Dataset):
             assert(torch.all(orig_vals == orig_vals[0]))
             # Replace all missing values with the same value
             ind_feat[mismatch_mask] = orig_vals[0]
-            # print('Performed remapping on feature:', fname, 'with n_mismatches:', n_mismatches, '->', torch.sum(ind_feat != train_feat[1:]).item())
 
         print('Done remapping features.')
 

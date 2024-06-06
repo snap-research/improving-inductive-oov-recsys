@@ -60,11 +60,6 @@ class FilteredCollector(Collector):
             result = torch.cat((pos_idx, pos_len_list), dim=1)
 
             self.data_struct.update_tensor("rec.topk", result)
-            # TODO(wshiao): revisit
-            # for debugging only
-            # masked_scores = scores_tensor.clone()
-            # masked_scores[torch.isinf(masked_scores)] = float('inf')
-            # self.data_struct.update_tensor("rec.score_diffs", scores_tensor.max(dim=1).values - masked_scores.min(dim=1).values)
 
         if self.register.need("rec.meanrank"):
             raise NotImplementedError("rec.meanrank is not implemented for filtered collector")
