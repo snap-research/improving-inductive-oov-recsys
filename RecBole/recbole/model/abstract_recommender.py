@@ -3,23 +3,26 @@
 # @Email  : slmu@ruc.edu.cn
 
 # UPDATE:
-# @Time   : 2022/7/16, 2020/8/6, 2020/8/25
-# @Author : Zhen Tian, Shanlei Mu, Yupeng Hou
-# @Email  : chenyuwuxinn@gmail.com, slmu@ruc.edu.cn, houyupeng@ruc.edu.cn
+# @Time   : 2022/7/16, 2020/8/6, 2020/8/25, 2023/4/24
+# @Author : Zhen Tian, Shanlei Mu, Yupeng Hou, Chenglong Ma
+# @Email  : chenyuwuxinn@gmail.com, slmu@ruc.edu.cn, houyupeng@ruc.edu.cn, chenglong.m@outlook.com
 
 """
 recbole.model.abstract_recommender
 ##################################
 """
 
+from typing import Union
 from logging import getLogger
 
 import numpy as np
 import torch
 import torch.nn as nn
 
-from recbole.model.layers import FMEmbedding, FMFirstOrderLinear, FLEmbedding
+from recbole.model.layers import FMEmbedding, FMFirstOrderLinear, FLEmbedding, InductiveFMFirstOrderLinear
 from recbole.utils import ModelType, InputType, FeatureSource, FeatureType, set_color
+from recbole.inductive.abstract_mapper import AbstractInductiveMapper
+from recbole.inductive.abstract_embedder import AbstractInductiveEmbedder
 
 
 class AbstractRecommender(nn.Module):
@@ -108,6 +111,98 @@ class GeneralRecommender(AbstractRecommender):
         # load parameters info
         self.device = config["device"]
 
+    def ind_full_sort_predict(self, interaction, inductive_mapper):
+        pass
+
+class InductiveGeneralRecommender(GeneralRecommender):
+    def __init__(self, config, dataset, inductive_mapper: Union[AbstractInductiveMapper, None] = None, inductive_embedder: Union[AbstractInductiveEmbedder, None] = None):
+        super().__init__(config, dataset)
+
+        self.n_user_oov_buckets = 0
+        self.n_item_oov_buckets = 0
+        self.embedding_size = config['embedding_size']
+        self.inductive_mapper = inductive_mapper
+        self.inductive_embedder = inductive_embedder
+        self.oov_freeze_embedding = config['oov_freeze_embedding']
+        self.oov_training = False
+
+        if self.inductive_mapper is None and self.inductive_embedder is None:
+            raise NotImplementedError('Must provide either self.inductive_mapper or self.inductive_embedder')
+        self.n_new_items = self.inductive_mapper.n_new_items if self.inductive_mapper else self.inductive_embedder.n_new_items # type: ignore
+
+        # optionally add OOV buckets
+        if config['add_oov_buckets']:
+            self.n_user_oov_buckets = config['user_oov_buckets']
+            self.user_oov_buckets = nn.Embedding(self.n_user_oov_buckets, self.embedding_size)
+
+            self.n_item_oov_buckets = config['item_oov_buckets']
+            self.item_oov_buckets = nn.Embedding(self.n_item_oov_buckets, self.embedding_size)
+
+    def _user_id_lookup(self, user_ids: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError()
+
+    def _item_id_lookup(self, item_ids: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError()
+
+    def set_oov_train(self, no_freeze=False):
+        self.oov_training = True
+        if self.inductive_mapper is not None:
+            self.inductive_mapper.set_train()
+        if self.inductive_embedder is not None:
+            self.inductive_embedder.set_train()
+        if self.oov_freeze_embedding and not no_freeze:
+            self.freeze_non_oov_layers()
+
+    def set_oov_eval(self, no_freeze=False):
+        self.oov_training = False
+        if self.inductive_mapper is not None:
+            self.inductive_mapper.set_eval()
+        if self.inductive_embedder is not None:
+            self.inductive_embedder.set_eval()
+        if self.oov_freeze_embedding and not no_freeze:
+            self.unfreeze_non_oov_layers()
+
+    def freeze_non_oov_layers(self):
+        raise NotImplementedError()
+
+    def unfreeze_non_oov_layers(self):
+        raise NotImplementedError()
+
+    def ind_full_sort_predict(self, interaction):
+        new_user_ids = interaction[self.USER_ID]
+        if self.inductive_mapper is not None:
+            new_user_ids = self.inductive_mapper.map_user_ids(new_user_ids)
+
+        in_vocab_users = new_user_ids < self.n_users
+        n_oov_users = self.n_users - in_vocab_users.sum()
+
+        if self.inductive_embedder is not None:
+            user_e = self.inductive_embedder.embed_user_ids(new_user_ids)
+        elif self.n_user_oov_buckets > 0 and n_oov_users > 0:
+            # consider placing on CPU first and moving to GPU later to save memory
+            user_e = torch.zeros((new_user_ids.shape[0], self.embedding_size), device=self.device)
+            in_vocab_user_e = self._user_id_lookup(new_user_ids[in_vocab_users])
+            user_e[in_vocab_users] = in_vocab_user_e
+
+            oov_mask = ~in_vocab_users
+            if oov_mask.sum() > 0:
+                user_e[oov_mask] = self._user_id_lookup(new_user_ids[oov_mask])
+        else:
+            user_e = self._user_id_lookup(new_user_ids)
+
+        new_item_ids = torch.arange(self.n_new_items, device=self.device)
+        if self.inductive_mapper is not None:
+            new_item_ids = self.inductive_mapper.map_item_ids(new_item_ids)
+
+        if self.inductive_embedder is not None:
+            all_item_e = self.inductive_embedder.map_all_item_embeddings(self._item_id_lookup(new_item_ids))
+        else:
+            all_item_e = self._item_id_lookup(new_item_ids)
+
+        score = torch.matmul(user_e, all_item_e.transpose(0, 1)).cuda()
+        return score.view(-1)
+
+
 
 class AutoEncoderMixin(object):
     """This is a common part of auto-encoders. All the auto-encoder models should inherit this class,
@@ -117,6 +212,8 @@ class AutoEncoderMixin(object):
 
     def build_histroy_items(self, dataset):
         self.history_item_id, self.history_item_value, _ = dataset.history_item_matrix()
+        self.history_item_id = self.history_item_id.to(self.device)
+        self.history_item_value = self.history_item_value.to(self.device)
 
     def get_rating_matrix(self, user):
         r"""Get a batch of user's feature with the user's id and history interaction matrix.
@@ -132,11 +229,12 @@ class AutoEncoderMixin(object):
         row_indices = torch.arange(user.shape[0]).repeat_interleave(
             self.history_item_id.shape[1], dim=0
         )
-        rating_matrix = torch.zeros(1).repeat(user.shape[0], self.n_items)
+        rating_matrix = torch.zeros(1, device=self.device).repeat(
+            user.shape[0], self.n_items
+        )
         rating_matrix.index_put_(
             (row_indices, col_indices), self.history_item_value[user].flatten()
         )
-        rating_matrix = rating_matrix.to(self.device)
         return rating_matrix
 
 
@@ -335,7 +433,6 @@ class ContextRecommender(AbstractRecommender):
 
         Args:
             float_fields (torch.FloatTensor): The input dense tensor. shape of [batch_size, num_float_field]
-            embed (bool): Return the embedding of columns or just the columns itself. Defaults to ``True``.
 
         Returns:
             torch.FloatTensor: The result embedding tensor of float columns.
@@ -588,7 +685,11 @@ class ContextRecommender(AbstractRecommender):
             )  # [batch_size, num_token_field, 2]
         else:
             token_fields = None
+
         # [batch_size, num_token_field, embed_dim] or None
+        # We assume that the first and second token fields are the user ID and item ID, respectively.
+        assert(self.token_field_names[0] == self.USER_ID)
+        assert(self.token_field_names[1] == self.ITEM_ID)
         token_fields_embedding = self.embed_token_fields(token_fields)
 
         token_seq_fields = []
@@ -610,3 +711,132 @@ class ContextRecommender(AbstractRecommender):
         # sparse_embedding shape: [batch_size, num_token_seq_field+num_token_field, embed_dim] or None
         # dense_embedding shape: [batch_size, num_float_field, 2] or [batch_size, num_float_field, embed_dim] or None
         return sparse_embedding, dense_embedding
+
+class InductiveContextRecommender(ContextRecommender):
+    """InductiveContextRecommender is a abstract context-aware recommender that supports inductive learning.
+    All of the inductive context-aware models should implement this class.
+    """
+
+    def __init__(self, config, dataset, inductive_mapper: Union[AbstractInductiveMapper, None] = None, inductive_embedder: Union[AbstractInductiveEmbedder, None] = None):
+        super().__init__(config, dataset)
+
+        self.n_user_oov_buckets = 0
+        self.n_item_oov_buckets = 0
+        self.embedding_size = config['embedding_size']
+        self.oov_freeze_embedding = config['oov_freeze_embedding']
+        self.inductive_mapper = inductive_mapper
+        self.inductive_embedder = inductive_embedder
+        self.oov_training = False
+
+        self.USER_ID = config['USER_ID_FIELD']
+        self.ITEM_ID = config['ITEM_ID_FIELD']
+        self.n_users = dataset.num(self.USER_ID)
+        self.n_items = dataset.num(self.ITEM_ID)
+
+        if self.inductive_mapper is None and self.inductive_embedder is None:
+            raise NotImplementedError('Must provide either self.inductive_mapper or self.inductive_embedder')
+        self.n_new_items = self.inductive_mapper.n_new_items if self.inductive_mapper else self.inductive_embedder.n_new_items # type: ignore
+
+        # optionally add OOV buckets
+        if config['add_oov_buckets']:
+            self.n_user_oov_buckets = config['user_oov_buckets']
+            self.user_oov_buckets = nn.Embedding(self.n_user_oov_buckets, self.embedding_size)
+
+            self.n_item_oov_buckets = config['item_oov_buckets']
+            self.item_oov_buckets = nn.Embedding(self.n_item_oov_buckets, self.embedding_size)
+
+        from recbole.inductive.get_inductive import get_inductive_embedder, get_inductive_mapper
+
+        fo_embedder = get_inductive_embedder(config, dataset, embedding_size=1)
+        if inductive_embedder is not None and hasattr(fo_embedder, 'user_feature_mat'):
+            fo_embedder.user_feature_mat = inductive_embedder.user_feature_mat
+            fo_embedder.item_feature_mat = inductive_embedder.item_feature_mat
+
+        # override first_order_linear layer to one that supports inductive samples
+        self.first_order_linear = InductiveFMFirstOrderLinear(config, dataset,
+                                                              self.n_users,
+                                                              self.n_items,
+                                                              inductive_mapper=get_inductive_mapper(config, dataset, embedding_size=1),
+                                                              inductive_embedder=fo_embedder)
+
+    def _user_id_lookup(self, user_ids: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError()
+
+    def _item_id_lookup(self, item_ids: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError()
+
+    def set_oov_train(self, no_freeze=False):
+        """Set the model to training mode for OOV samples.
+        """
+        self.oov_training = True
+        if self.inductive_mapper is not None:
+            self.inductive_mapper.set_train()
+        if self.inductive_embedder is not None:
+            self.inductive_embedder.set_train()
+        if self.oov_freeze_embedding and not no_freeze:
+            self.freeze_non_oov_layers()
+
+    def set_oov_eval(self, no_freeze=False):
+        self.oov_training = False
+        if self.inductive_mapper is not None:
+            self.inductive_mapper.set_eval()
+        if self.inductive_embedder is not None:
+            self.inductive_embedder.set_eval()
+        if self.oov_freeze_embedding and not no_freeze:
+            self.unfreeze_non_oov_layers()
+
+    def freeze_non_oov_layers(self):
+        raise NotImplementedError()
+
+    def unfreeze_non_oov_layers(self):
+        raise NotImplementedError()
+
+    def embed_token_fields(self, token_fields):
+        """Embed the token feature columns
+
+        Args:
+            token_fields (torch.LongTensor): The input tensor. shape of [batch_size, num_token_field]
+
+        Returns:
+            torch.FloatTensor: The result embedding tensor of token columns.
+        """
+        # input Tensor shape : [batch_size, num_token_field]
+        if token_fields is None:
+            return None
+        # [batch_size, num_token_field, embed_dim]
+        output_size = self.token_embedding_table.embedding.embedding_dim * token_fields.size(0)
+        user_ids = token_fields[:, 0].ravel()
+        item_ids = token_fields[:, 1].ravel()
+
+        oov_users = user_ids >= self.n_users
+        oov_items = item_ids >= self.n_items
+        n_oov_users = oov_users.sum()
+        n_oov_items = oov_items.sum()
+        offsets = self.token_embedding_table.offsets
+
+        if n_oov_users > 0 or n_oov_items > 0:
+            new_token_fields = token_fields.clone()
+            new_token_fields[oov_users, 0] = 0
+            new_token_fields[oov_items, 1] = 0
+            token_embedding = self.token_embedding_table(new_token_fields)
+
+            if self.inductive_mapper is not None:
+                if n_oov_users > 0:
+                    new_user_embeddings = self.user_oov_buckets(self.inductive_mapper.map_user_ids(user_ids[oov_users]) - self.n_users)
+                    token_embedding[oov_users, 0] = new_user_embeddings
+                if n_oov_items > 0:
+                    new_item_embeddings = self.item_oov_buckets(self.inductive_mapper.map_item_ids(item_ids[oov_items]) - self.n_items)
+                    token_embedding[oov_items, 1] = new_item_embeddings
+            elif self.inductive_embedder is not None:
+                if n_oov_users > 0:
+                    new_user_embeddings = self.inductive_embedder.embed_user_ids(user_ids[oov_users], self)
+                    token_embedding[oov_users, 0] = new_user_embeddings
+                if n_oov_items > 0:
+                    new_item_embeddings = self.inductive_embedder.embed_item_ids(item_ids[oov_items], self)
+                    token_embedding[oov_items, 1] = new_item_embeddings
+            else:
+                raise RuntimeError('Must provide either self.inductive_mapper or self.inductive_embedder')
+        else:
+            token_embedding = self.token_embedding_table(token_fields)
+
+        return token_embedding

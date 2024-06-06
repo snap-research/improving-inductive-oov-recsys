@@ -158,16 +158,36 @@ class Dataset(torch.utils.data.Dataset):
         - Preloading weights initialization
         """
         self.feat_name_list = self._build_feat_name_list()
-        if self.benchmark_filename_list is None:
-            self._data_filtering()
+        # if self.benchmark_filename_list is None:
+        self._data_filtering()
 
         self._remap_ID_all()
+        # self._remove_old_samples()
+        self._remove_new_samples()
         self._user_item_feat_preparation()
         self._fill_nan()
         self._set_label_by_threshold()
         self._normalize()
         self._discretization()
         self._preload_weight_matrix()
+
+    def _remove_new_samples(self):
+        """Remove new samples that have is_new set to True. For inductive samples
+        """
+        if 'is_new' not in self.inter_feat.columns:
+            return None
+        old_items_id = self.field2token_id['is_new']['1']
+        to_remove = self.inter_feat[self.inter_feat['is_new'] == old_items_id].index
+        self.inter_feat.drop(to_remove, inplace=True)
+
+    def _remove_old_samples(self):
+        """Remove old samples that have is_new set to False to add inductive support.
+        """
+        if 'is_new' not in self.inter_feat.columns:
+            return None
+        old_items_id = self.field2token_id['is_new']['-1']
+        to_remove = self.inter_feat[self.inter_feat['is_new'] == old_items_id].index
+        self.inter_feat.drop(to_remove, inplace=True)
 
     def _data_filtering(self):
         """Data filtering
@@ -418,6 +438,9 @@ class Dataset(torch.utils.data.Dataset):
             raise ValueError(
                 f"load_col [{load_col}] and unload_col [{unload_col}] can not be set the same time."
             )
+
+        if load_col:
+            load_col.add('is_new')
 
         self.logger.debug(set_color(f"[{source}]: ", "pink"))
         self.logger.debug(set_color("\t load_col", "blue") + f": [{load_col}]")
@@ -1766,7 +1789,8 @@ class Dataset(torch.utils.data.Dataset):
         if ordering_args == "RO":
             self.shuffle()
         elif ordering_args == "TO":
-            self.sort(by=self.time_field)
+            # self.sort(by=self.time_field)
+            pass
         else:
             raise NotImplementedError(
                 f"The ordering_method [{ordering_args}] has not been implemented."
@@ -1810,7 +1834,9 @@ class Dataset(torch.utils.data.Dataset):
         """Saving this :class:`Dataset` object to :attr:`config['checkpoint_dir']`."""
         save_dir = self.config["checkpoint_dir"]
         ensure_dir(save_dir)
-        file = os.path.join(save_dir, f'{self.config["dataset"]}-dataset.pth')
+        file = os.path.join(
+            save_dir, f'{self.config["dataset"]}-{self.__class__.__name__}.pth'
+        )
         self.logger.info(
             set_color("Saving filtered dataset into ", "pink") + f"[{file}]"
         )

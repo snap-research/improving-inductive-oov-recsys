@@ -19,11 +19,14 @@ import copy
 import math
 
 import numpy as np
+from pyparsing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as fn
 from torch.nn.init import normal_
 
+from recbole.inductive.abstract_embedder import AbstractInductiveEmbedder
+from recbole.inductive.abstract_mapper import AbstractInductiveMapper
 from recbole.utils import FeatureType, FeatureSource
 
 
@@ -1373,6 +1376,7 @@ class FMFirstOrderLinear(nn.Module):
         self.token_seq_field_dims = []
         self.float_seq_field_names = []
         self.float_seq_field_dims = []
+        self.embedding_dims = output_dim
 
         for field_name in self.field_names:
             if field_name == self.LABEL:
@@ -1610,6 +1614,140 @@ class FMFirstOrderLinear(nn.Module):
             torch.sum(torch.cat(total_fields_embedding, dim=1), dim=1) + self.bias
         )  # [batch_size, output_dim]
 
+class InductiveFMFirstOrderLinear(FMFirstOrderLinear):
+    def __init__(self, config, dataset, n_users, n_items, output_dim=1, inductive_mapper = None, inductive_embedder = None):
+        super().__init__(config, dataset, output_dim)
+        self.n_users = n_users
+        self.n_items = n_items
+        self.inductive_mapper = inductive_mapper
+        self.inductive_embedder = inductive_embedder
+
+        # optionally add OOV buckets
+        if config['add_oov_buckets']:
+            self.n_user_oov_buckets = config['user_oov_buckets']
+            self.user_oov_buckets = nn.Embedding(self.n_user_oov_buckets, output_dim)
+
+            self.n_item_oov_buckets = config['item_oov_buckets']
+            self.item_oov_buckets = nn.Embedding(self.n_item_oov_buckets, output_dim)
+
+
+    def embed_token_fields(self, token_fields, uid_idx = None, iid_idx = None):
+        """Calculate the first order score of token feature columns
+
+        Args:
+            token_fields (torch.LongTensor): The input tensor. shape of [batch_size, num_token_field]
+
+        Returns:
+            torch.FloatTensor: The first order score of token feature columns
+        """
+        # input Tensor shape : [batch_size, num_token_field]
+        if token_fields is None:
+            return None
+        if uid_idx and iid_idx is None:
+            # [batch_size, num_token_field, embed_dim]
+            token_embedding = self.token_embedding_table(token_fields)
+            # [batch_size, 1, output_dim]
+            token_embedding = torch.sum(token_embedding, dim=1, keepdim=True)
+            return token_embedding
+
+        output_size = self.token_embedding_table.embedding.embedding_dim * token_fields.size(0)
+        user_ids = token_fields[:, uid_idx].ravel()
+        item_ids = token_fields[:, iid_idx].ravel()
+
+        oov_users = user_ids >= self.n_users
+        oov_items = item_ids >= self.n_items
+        n_oov_users = oov_users.sum()
+        n_oov_items = oov_items.sum()
+        offsets = self.token_embedding_table.offsets
+
+        if n_oov_users > 0 or n_oov_items > 0:
+            new_token_fields = token_fields.clone()
+            new_token_fields[oov_users, uid_idx] = 0
+            new_token_fields[oov_items, iid_idx] = 0
+            token_embedding = self.token_embedding_table(new_token_fields)
+            if self.inductive_mapper is not None:
+                if n_oov_users > 0:
+                    new_user_embeddings = self.user_oov_buckets(self.inductive_mapper.map_user_ids(user_ids[oov_users]) - self.n_users)
+                    token_embedding[oov_users, uid_idx] = new_user_embeddings
+                    # new_user_embeddings = self.token_embedding_table.embedding(self.inductive_mapper.map_user_ids(user_ids[oov_users]) - self.n_users + offsets[0])
+                    # token_embedding[oov_users, 0] = new_user_embeddings
+                if n_oov_items > 0:
+                    new_item_embeddings = self.item_oov_buckets(self.inductive_mapper.map_item_ids(item_ids[oov_items]) - self.n_items)
+                    token_embedding[oov_items, iid_idx] = new_item_embeddings
+                    # new_item_embeddings = self.token_embedding_table.embedding(self.inductive_mapper.map_item_ids(item_ids[oov_items]) - self.n_items + offsets[1])
+                    # token_embedding[oov_items, 1] = new_item_embeddings
+            elif self.inductive_embedder is not None:
+                if n_oov_users > 0:
+                    new_user_embeddings = self.inductive_embedder.embed_user_ids(user_ids[oov_users], self)
+                    token_embedding[oov_users, uid_idx] = new_user_embeddings
+                if n_oov_items > 0:
+                    new_item_embeddings = self.inductive_embedder.embed_item_ids(item_ids[oov_items], self)
+                    token_embedding[oov_items, iid_idx] = new_item_embeddings
+            else:
+                raise RuntimeError('Must provide either self.inductive_mapper or self.inductive_embedder')
+        else:
+            token_embedding = self.token_embedding_table(token_fields)
+
+        # perform sum aggregation
+        token_embedding = torch.sum(token_embedding, dim=1, keepdim=True)
+        return token_embedding
+
+    def forward(self, interaction):
+        total_fields_embedding = []
+        float_fields = []
+        for field_name in self.float_field_names:
+            if len(interaction[field_name].shape) == 3:
+                float_fields.append(interaction[field_name])
+            else:
+                float_fields.append(interaction[field_name].unsqueeze(1))
+
+        if len(float_fields) > 0:
+            float_fields = torch.cat(float_fields, dim=1)
+        else:
+            float_fields = None
+
+        float_fields_embedding = self.embed_float_fields(float_fields)
+
+        if float_fields_embedding is not None:
+            total_fields_embedding.append(float_fields_embedding)
+
+        float_seq_fields = []
+        for field_name in self.float_seq_field_names:
+            float_seq_fields.append(interaction[field_name])
+
+        float_seq_fields_embedding = self.embed_float_seq_fields(float_seq_fields)
+
+        if float_seq_fields_embedding is not None:
+            total_fields_embedding.append(float_seq_fields_embedding)
+
+        uid_idx = 0
+        iid_idx = 1
+        token_fields = []
+        for i, field_name in enumerate(self.token_field_names):
+            token_fields.append(interaction[field_name].unsqueeze(1))
+
+        if len(token_fields) > 0:
+            token_fields = torch.cat(
+                token_fields, dim=1
+            )  # [batch_size, num_token_field]
+        else:
+            token_fields = None
+        # [batch_size, 1, output_dim] or None
+        token_fields_embedding = self.embed_token_fields(token_fields, uid_idx, iid_idx)
+        if token_fields_embedding is not None:
+            total_fields_embedding.append(token_fields_embedding)
+
+        token_seq_fields = []
+        for field_name in self.token_seq_field_names:
+            token_seq_fields.append(interaction[field_name])
+        # [batch_size, 1, output_dim] or None
+        token_seq_fields_embedding = self.embed_token_seq_fields(token_seq_fields)
+        if token_seq_fields_embedding is not None:
+            total_fields_embedding.append(token_seq_fields_embedding)
+
+        return (
+            torch.sum(torch.cat(total_fields_embedding, dim=1), dim=1) + self.bias
+        )  # [batch_size, output_dim]
 
 class SparseDropout(nn.Module):
     """

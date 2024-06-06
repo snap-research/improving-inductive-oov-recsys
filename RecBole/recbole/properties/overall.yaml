@@ -50,3 +50,67 @@ valid_metric: MRR@10            # (str) The evaluation metric for early stopping
 valid_metric_bigger: True       # (bool) Whether to take a bigger valid metric value as a better result.
 eval_batch_size: 4096           # (int) The evaluation batch size.
 metric_decimal_place: 4         # (int) The decimal place of metric scores.
+
+# If we want to reduce the size of the validation set (after splitting) we can use this setting.
+# Currently, the method of sampling is not very efficient since we generate the whole split and
+# just skip over any processing.
+eval_valid_sample_ratio: -1
+
+#####
+# OOV Settings
+#####
+# Train ratio sampled at every epoch for OOV training
+oov_train_ratio: 0.2
+
+# Feature mask rate for OOV training
+oov_feature_mask_rate: 0.2
+
+# OOV prime pad for marking OOV IDs.
+# OOV ID = [Original ID] + [OOV prime pad]
+# This allows for a reversible operation to obtain the features corresponding to each ID.
+oov_prime_pad: 112062759511
+
+# The OOV hash function to use.
+# Can be one of mod, fast, 3round, and 64bit.
+# mod can be biased but is fastest.
+# fast is a 2-round function and is faster than 3round.
+# 3round is still fast and has the best mixing.
+# 64bit is still experimental.
+oov_hash_function: 3round
+
+# Whether or not to split OOV samples out into its own epoch.
+oov_only_epoch: True
+
+oov_eval_batch_size: -1
+
+# Whether or not to freeze IV embeddings during OOV training.
+oov_freeze_embedding: False
+
+# DHE-specific parameters
+dhe_num_hashes: 128
+dhe_layer_size: 512
+
+# Debugging flags to test out specific comnponents
+oov_debug_skip_eval: False
+oov_debug_skip_train: False
+
+# Whether or not to shuffle the OOV samples at every epoch.
+oov_shuffle_epoch: True
+
+# Whether or not to also freeze the optimizer parameters.
+oov_freeze_skip_optim: False
+
+# Number of neighbors used for the KNN OOV method.
+oov_knn_num_neighbors: 2
+
+# Feature normalization type.
+# Can be one of three options: per-feature, global, none.
+# Not implemented for all OOV embedders.
+oov_normalization_type: per-feature
+
+use_perturbed_hits: True
+shuffled_eval: True
+shuffled_eval_fixed: True
+
+# Whether to evaluate the model using retrieval or ranking metrics.
+model_eval_type: retrieval

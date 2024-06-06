@@ -12,6 +12,7 @@ recbole.data.dataloader.general_dataloader
 ################################################
 """
 
+import math
 import numpy as np
 import torch
 from logging import getLogger
@@ -84,7 +85,7 @@ class NegSampleEvalDataLoader(NegSampleDataLoader):
         shuffle (bool, optional): Whether the dataloader will be shuffle after a round. Defaults to ``False``.
     """
 
-    def __init__(self, config, dataset, sampler, shuffle=False):
+    def __init__(self, config, dataset, sampler, shuffle=False, index_sampler=None):
         self.logger = getLogger()
         phase = sampler.phase if sampler is not None else "test"
         self._set_neg_sample_args(
@@ -113,9 +114,14 @@ class NegSampleEvalDataLoader(NegSampleDataLoader):
         else:
             self.sample_size = len(dataset)
         if shuffle:
-            self.logger.warnning("NegSampleEvalDataLoader can't shuffle")
+            self.logger.warning("NegSampleEvalDataLoader can't shuffle")
             shuffle = False
-        super().__init__(config, dataset, sampler, shuffle=shuffle)
+
+        self.should_sample = False
+        # self.sample_ratio = config['sample_eval_ratio'] or 0.25
+        # if self.sample_ratio < 0 or self.sample_ratio > 1:
+        #     raise ValueError('sample_eval_ratio must be in [0, 1]')
+        super().__init__(config, dataset, sampler, shuffle=shuffle, index_sampler=index_sampler)
 
     def _init_batch_size_and_step(self):
         batch_size = self.config["eval_batch_size"]
@@ -138,13 +144,23 @@ class NegSampleEvalDataLoader(NegSampleDataLoader):
             self.set_batch_size(batch_size)
 
     def update_config(self, config):
+        phase = self._sampler.phase if self._sampler.phase is not None else "test"
         self._set_neg_sample_args(
-            config, self._dataset, InputType.POINTWISE, config["eval_neg_sample_args"]
+            config,
+            self._dataset,
+            InputType.POINTWISE,
+            config[f"{phase}_neg_sample_args"],
         )
         super().update_config(config)
 
+    def set_sampling(self, should_sample: bool):
+        self.should_sample = should_sample
+
     def collate_fn(self, index):
         index = np.array(index)
+        # if self.should_sample and self.sample_ratio < 1:
+        #     index = np.random.choice(index, math.ceil(len(index) * self.sample_ratio))
+
         if (
             self.neg_sample_args["distribution"] != "none"
             and self.neg_sample_args["sample_num"] != "none"
@@ -247,6 +263,9 @@ class FullSortEvalDataLoader(AbstractDataLoader):
         else:
             self.step = batch_size
             self.set_batch_size(batch_size)
+
+    def update_config(self, config):
+        super().update_config(config)
 
     def collate_fn(self, index):
         index = np.array(index)

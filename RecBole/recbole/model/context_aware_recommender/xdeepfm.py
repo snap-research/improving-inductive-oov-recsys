@@ -20,22 +20,25 @@ Reference code:
     - https://github.com/shenweichen/DeepCTR-Torch
 """
 
+from typing import Optional
+from recbole.inductive.abstract_embedder import AbstractInductiveEmbedder
+from recbole.inductive.abstract_mapper import AbstractInductiveMapper
 import torch
 import torch.nn as nn
 from torch.nn.init import xavier_normal_, constant_
 
-from recbole.model.abstract_recommender import ContextRecommender
+from recbole.model.abstract_recommender import InductiveContextRecommender
 from recbole.model.layers import MLPLayers, activation_layer
 
 
-class xDeepFM(ContextRecommender):
+class xDeepFM(InductiveContextRecommender):
     """xDeepFM combines a CIN (Compressed Interaction Network) with a classical DNN.
     The model is able to learn certain bounded-degree feature interactions explicitly;
     Besides, it can also learn arbitrary low- and high-order feature interactions implicitly.
     """
 
-    def __init__(self, config, dataset):
-        super(xDeepFM, self).__init__(config, dataset)
+    def __init__(self, config, dataset, inductive_mapper: Optional[AbstractInductiveMapper] = None, inductive_embedder: Optional[AbstractInductiveEmbedder] = None):
+        super(xDeepFM, self).__init__(config, dataset, inductive_mapper, inductive_embedder)
 
         # load parameters info
         self.mlp_hidden_size = config["mlp_hidden_size"]
@@ -90,6 +93,17 @@ class xDeepFM(ContextRecommender):
             xavier_normal_(module.weight.data)
             if module.bias is not None:
                 constant_(module.bias.data, 0)
+
+
+    def freeze_non_oov_layers(self):
+        for name, param in self.named_parameters():
+            if 'oov_bucket' not in name and 'inductive_embedder' not in name:
+                param.requires_grad = False
+
+    def unfreeze_non_oov_layers(self):
+        for name, param in self.named_parameters():
+            if 'oov_bucket' not in name and 'inductive_embedder' not in name:
+                param.requires_grad = True
 
     def reg_loss(self, parameters):
         """Calculate the L2 normalization loss of parameters in a certain layer.
