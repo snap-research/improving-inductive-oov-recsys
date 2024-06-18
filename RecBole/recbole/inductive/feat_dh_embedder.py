@@ -17,7 +17,7 @@ import secrets
 
 class FeatDeepHashEmbedder(AbstractInductiveEmbedder):
     """
-    A class that represents a feature-based deep hash embedder for inductive recommendation models.
+    A class that represents a feature-based deep hash embedder for inductive recommendation models. https://arxiv.org/pdf/2010.10784.
 
     Args:
         user_features (pd.DataFrame): The user features dataframe.
