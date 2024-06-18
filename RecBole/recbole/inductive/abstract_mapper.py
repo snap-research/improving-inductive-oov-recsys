@@ -4,7 +4,7 @@ from torch import nn
 
 class AbstractInductiveMapper(nn.Module):
     """
-    Abstract base class for inductive mappers.
+    Abstract base class for inductive mappers. Maps user/item ids to their corresponding embeddings.
 
     Args:
         user_features (list): List of user features.
