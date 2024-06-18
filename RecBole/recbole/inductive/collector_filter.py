@@ -108,7 +108,8 @@ class FastUserCollectorFilter(InductiveCollectorFilter):
 
 
 class FastItemCollectorFilter(InductiveCollectorFilter):
-
+    """Optimized version of ItemCollectorFilter for old/new item splits.
+    """
     def __init__(self, n_old_items: int, return_old=True) -> None:
         super().__init__()
         self.n_old_items = n_old_items
