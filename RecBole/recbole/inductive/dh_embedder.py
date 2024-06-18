@@ -17,7 +17,7 @@ import secrets
 
 class DeepHashEmbedder(AbstractInductiveEmbedder):
     """
-    DeepHashEmbedder is a class that implements an inductive embedding method using deep hashing.
+    DeepHashEmbedder is a class that implements an inductive embedding method using deep hashing. https://arxiv.org/pdf/2010.10784. 
 
     Args:
         user_features (pd.DataFrame): The user features dataframe.
