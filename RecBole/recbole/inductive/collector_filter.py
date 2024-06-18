@@ -5,7 +5,8 @@ from torch import Tensor
 
 class InductiveCollectorFilter():
     """
-    This class represents an inductive collector filter.
+    This class represents an inductive collector filter, responsible for filtering and mapping users/items in the recommendation process.
+
 
     Methods:
         apply_score_filter(score_mat: Tensor) -> Tensor:
