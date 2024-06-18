@@ -20,6 +20,8 @@ install_requires = [
     "thop>=0.1.1.post2207130030",
     "tabulate>=0.8.10",
     "plotly>=4.0.0",
+    "csiphash==0.0.5",
+    "pyLSHash==0.2.3"
 ]
 
 setup_requires = []

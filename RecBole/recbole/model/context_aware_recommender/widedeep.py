@@ -11,14 +11,17 @@ Reference:
     Heng-Tze Cheng et al. "Wide & Deep Learning for Recommender Systems." in RecSys 2016.
 """
 
+from typing import Optional
 import torch.nn as nn
 from torch.nn.init import xavier_normal_, constant_
 
-from recbole.model.abstract_recommender import ContextRecommender
+from recbole.inductive.abstract_embedder import AbstractInductiveEmbedder
+from recbole.inductive.abstract_mapper import AbstractInductiveMapper
+from recbole.model.abstract_recommender import ContextRecommender, InductiveContextRecommender
 from recbole.model.layers import MLPLayers
 
 
-class WideDeep(ContextRecommender):
+class WideDeep(InductiveContextRecommender):
     r"""WideDeep is a context-based recommendation model.
     It jointly trains wide linear models and deep neural networks to combine the benefits
     of memorization and generalization for recommender systems. The wide component is a generalized linear model
@@ -27,8 +30,8 @@ class WideDeep(ContextRecommender):
     which is then fed to one common logistic loss function for joint training.
     """
 
-    def __init__(self, config, dataset):
-        super(WideDeep, self).__init__(config, dataset)
+    def __init__(self, config, dataset, inductive_mapper: Optional[AbstractInductiveMapper] = None, inductive_embedder: Optional[AbstractInductiveEmbedder] = None):
+        super(WideDeep, self).__init__(config, dataset, inductive_mapper, inductive_embedder)
 
         # load parameters info
         self.mlp_hidden_size = config["mlp_hidden_size"]
@@ -54,6 +57,16 @@ class WideDeep(ContextRecommender):
             if module.bias is not None:
                 constant_(module.bias.data, 0)
 
+    def freeze_non_oov_layers(self):
+        for name, param in self.named_parameters():
+            if 'oov_bucket' not in name and 'inductive_embedder' not in name:
+                param.requires_grad = False
+
+    def unfreeze_non_oov_layers(self):
+        for name, param in self.named_parameters():
+            if 'oov_bucket' not in name and 'inductive_embedder' not in name:
+                param.requires_grad = True
+
     def forward(self, interaction):
         widedeep_all_embeddings = self.concat_embed_input_fields(
             interaction
@@ -70,6 +83,8 @@ class WideDeep(ContextRecommender):
     def calculate_loss(self, interaction):
         label = interaction[self.LABEL]
         output = self.forward(interaction)
+        if output.shape != label.shape:
+            output = self.forward(interaction)
         return self.loss(output, label)
 
     def predict(self, interaction):

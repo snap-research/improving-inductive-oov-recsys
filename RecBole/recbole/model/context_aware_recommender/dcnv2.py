@@ -15,23 +15,26 @@ Reference code:
 
 """
 
+from typing import Union
+from recbole.inductive.abstract_embedder import AbstractInductiveEmbedder
+from recbole.inductive.abstract_mapper import AbstractInductiveMapper
 import torch
 import torch.nn as nn
 
-from recbole.model.abstract_recommender import ContextRecommender
+from recbole.model.abstract_recommender import InductiveContextRecommender
 from recbole.model.init import xavier_normal_initialization
 from recbole.model.layers import MLPLayers
 from recbole.model.loss import RegLoss
 
 
-class DCNV2(ContextRecommender):
+class DCNV2(InductiveContextRecommender):
     r"""DCNV2 improves the cross network by extending the original weight vector to a matrix,
     significantly improves the expressiveness of DCN. It also introduces the MoE and
     low rank techniques to reduce time cost.
     """
 
-    def __init__(self, config, dataset):
-        super(DCNV2, self).__init__(config, dataset)
+    def __init__(self, config, dataset, inductive_mapper: Union[AbstractInductiveMapper, None] = None, inductive_embedder: Union[AbstractInductiveEmbedder, None] = None):
+        super(DCNV2, self).__init__(config, dataset, inductive_mapper, inductive_embedder)
 
         # load and compute parameters info
         self.mixed = config["mixed"]
@@ -103,6 +106,16 @@ class DCNV2(ContextRecommender):
 
         # parameters initialization
         self.apply(xavier_normal_initialization)
+
+    def freeze_non_oov_layers(self):
+        for name, param in self.named_parameters():
+            if 'oov_bucket' not in name and 'inductive_embedder' not in name:
+                param.requires_grad = False
+
+    def unfreeze_non_oov_layers(self):
+        for name, param in self.named_parameters():
+            if 'oov_bucket' not in name and 'inductive_embedder' not in name:
+                param.requires_grad = True
 
     def cross_network(self, x_0):
         r"""Cross network is composed of cross layers, with each layer having the following formula.

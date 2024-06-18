@@ -6,7 +6,6 @@
 # @Time   : 2021/7/9, 2020/9/17, 2020/8/31, 2021/2/20, 2021/3/1, 2022/7/6
 # @Author : Yupeng Hou, Yushuo Chen, Kaiyuan Li, Haoran Cheng, Jiawei Guan, Gaowei Zhang
 # @Email  : houyupeng@ruc.edu.cn, chenyushuo@ruc.edu.cn, tsotfsk@outlook.com, chenghaoran29@foxmail.com, guanjw@ruc.edu.cn, zgw15630559577@163.com
-
 """
 recbole.data.utils
 ########################
@@ -17,15 +16,16 @@ import importlib
 import os
 import pickle
 import warnings
-from typing import Literal
+from typing import Literal, Union
 
+from torch.utils.data import RandomSampler, SubsetRandomSampler
 from recbole.data.dataloader import *
 from recbole.sampler import KGSampler, Sampler, RepeatableSampler
 from recbole.utils import ModelType, ensure_dir, get_local_time, set_color
 from recbole.utils.argument_list import dataset_arguments
 
 
-def create_dataset(config):
+def create_dataset(config, inductive=False, removal_setting: Union[Literal['remove_old', 'remove_new'], None] = None):
     """Create dataset according to :attr:`config['model']` and :attr:`config['MODEL_TYPE']`.
     If :attr:`config['dataset_save_path']` file exists and
     its :attr:`config` of dataset is equal to current :attr:`config` of dataset.
@@ -38,7 +38,9 @@ def create_dataset(config):
         Dataset: Constructed dataset.
     """
     dataset_module = importlib.import_module("recbole.data.dataset")
-    if hasattr(dataset_module, config["model"] + "Dataset"):
+    if inductive:
+        dataset_class = getattr(dataset_module, "InductiveDataset")
+    elif hasattr(dataset_module, config["model"] + "Dataset"):
         dataset_class = getattr(dataset_module, config["model"] + "Dataset")
     else:
         model_type = config["MODEL_TYPE"]
@@ -52,9 +54,7 @@ def create_dataset(config):
         }
         dataset_class = getattr(dataset_module, type2class[model_type])
 
-    default_file = os.path.join(
-        config["checkpoint_dir"], f'{config["dataset"]}-{dataset_class.__name__}.pth'
-    )
+    default_file = os.path.join(config["checkpoint_dir"], f'{config["dataset"]}-{dataset_class.__name__}.pth')
     file = config["dataset_save_path"] or default_file
     if os.path.exists(file):
         with open(file, "rb") as f:
@@ -69,7 +69,10 @@ def create_dataset(config):
             logger.info(set_color("Load filtered dataset from", "pink") + f": [{file}]")
             return dataset
 
-    dataset = dataset_class(config)
+    if inductive:
+        dataset = dataset_class(config, removal_setting=removal_setting)
+    else:
+        dataset = dataset_class(config)
     if config["save_dataset"]:
         dataset.save()
     return dataset
@@ -134,10 +137,7 @@ def load_split_dataloaders(config):
     valid_data.update_config(config)
     test_data.update_config(config)
     logger = getLogger()
-    logger.info(
-        set_color("Load split dataloaders from", "pink")
-        + f": [{dataloaders_save_path}]"
-    )
+    logger.info(set_color("Load split dataloaders from", "pink") + f": [{dataloaders_save_path}]")
     return train_data, valid_data, test_data
 
 
@@ -159,64 +159,54 @@ def data_preparation(config, dataset):
     """
     dataloaders = load_split_dataloaders(config)
     if dataloaders is not None:
-        train_data, valid_data, test_data = dataloaders
+        raise NotImplementedError()
     else:
         model_type = config["MODEL_TYPE"]
         built_datasets = dataset.build()
 
         train_dataset, valid_dataset, test_dataset = built_datasets
-        train_sampler, valid_sampler, test_sampler = create_samplers(
-            config, dataset, built_datasets
-        )
+        train_sampler, valid_sampler, test_sampler = create_samplers(config, dataset, built_datasets)
 
         if model_type != ModelType.KNOWLEDGE:
-            train_data = get_dataloader(config, "train")(
-                config, train_dataset, train_sampler, shuffle=config["shuffle"]
-            )
+            train_data = get_dataloader(config, "train")(config,
+                                                         train_dataset,
+                                                         train_sampler,
+                                                         shuffle=config["shuffle"])
         else:
             kg_sampler = KGSampler(
                 dataset,
                 config["train_neg_sample_args"]["distribution"],
                 config["train_neg_sample_args"]["alpha"],
             )
-            train_data = get_dataloader(config, "train")(
-                config, train_dataset, train_sampler, kg_sampler, shuffle=True
-            )
+            train_data = get_dataloader(config, "train")(config, train_dataset, train_sampler, kg_sampler, shuffle=True)
 
-        valid_data = get_dataloader(config, "valid")(
-            config, valid_dataset, valid_sampler, shuffle=False
-        )
-        test_data = get_dataloader(config, "test")(
-            config, test_dataset, test_sampler, shuffle=False
-        )
+        if config['sample_eval']:
+            sample_ratio = config['sample_eval_ratio'] or 0.25
+            valid_index_sampler = RandomSampler(valid_dataset,
+                                                replacement=True,
+                                                num_samples=math.ceil(len(valid_dataset) * sample_ratio))
+            # valid_index_sampler = SubsetRandomSampler(list(range()))
+        else:
+            valid_index_sampler = None
+
+        valid_data = get_dataloader(config, "valid")(config, valid_dataset, valid_sampler, shuffle=False)
+        test_data = get_dataloader(config, "test")(config, test_dataset, test_sampler, shuffle=False)
         if config["save_dataloaders"]:
-            save_split_dataloaders(
-                config, dataloaders=(train_data, valid_data, test_data)
-            )
+            save_split_dataloaders(config, dataloaders=(train_data, valid_data, test_data))
 
     logger = getLogger()
     logger.info(
-        set_color("[Training]: ", "pink")
-        + set_color("train_batch_size", "cyan")
-        + " = "
-        + set_color(f'[{config["train_batch_size"]}]', "yellow")
-        + set_color(" train_neg_sample_args", "cyan")
-        + ": "
-        + set_color(f'[{config["train_neg_sample_args"]}]', "yellow")
-    )
+        set_color("[Training]: ", "pink") + set_color("train_batch_size", "cyan") + " = " +
+        set_color(f'[{config["train_batch_size"]}]', "yellow") + set_color(" train_neg_sample_args", "cyan") + ": " +
+        set_color(f'[{config["train_neg_sample_args"]}]', "yellow"))
     logger.info(
-        set_color("[Evaluation]: ", "pink")
-        + set_color("eval_batch_size", "cyan")
-        + " = "
-        + set_color(f'[{config["eval_batch_size"]}]', "yellow")
-        + set_color(" eval_args", "cyan")
-        + ": "
-        + set_color(f'[{config["eval_args"]}]', "yellow")
-    )
+        set_color("[Evaluation]: ", "pink") + set_color("eval_batch_size", "cyan") + " = " +
+        set_color(f'[{config["eval_batch_size"]}]', "yellow") + set_color(" eval_args", "cyan") + ": " +
+        set_color(f'[{config["eval_args"]}]', "yellow"))
     return train_data, valid_data, test_data
 
 
-def get_dataloader(config, phase: Literal['train', 'valid', 'test', 'evaluation']):
+def get_dataloader(config, phase: Literal["train", "valid", "test", "evaluation", "oov"]):
     """Return a dataloader class according to :attr:`config` and :attr:`phase`.
 
     Args:
@@ -226,11 +216,14 @@ def get_dataloader(config, phase: Literal['train', 'valid', 'test', 'evaluation'
     Returns:
         type: The dataloader class that meets the requirements in :attr:`config` and :attr:`phase`.
     """
-    if phase not in ['train', 'valid', 'test', 'evaluation']:
+    if phase not in ["train", "valid", "test", "evaluation", "oov"]:
         raise ValueError("`phase` can only be 'train', 'valid', 'test' or 'evaluation'.")
-    if phase == 'evaluation':
-        phase = 'test'
-        warnings.warn("'evaluation' has been deprecated, please use 'valid' or 'test' instead.", DeprecationWarning)
+    if phase == "evaluation":
+        phase = "test"
+        warnings.warn(
+            "'evaluation' has been deprecated, please use 'valid' or 'test' instead.",
+            DeprecationWarning,
+        )
 
     register_table = {
         "MultiDAE": _get_AE_dataloader,
@@ -246,7 +239,7 @@ def get_dataloader(config, phase: Literal['train', 'valid', 'test', 'evaluation'
         return register_table[config["model"]](config, phase)
 
     model_type = config["MODEL_TYPE"]
-    if phase == "train":
+    if phase == "train" or phase == "oov":
         if model_type != ModelType.KNOWLEDGE:
             return TrainDataLoader
         else:
@@ -259,7 +252,7 @@ def get_dataloader(config, phase: Literal['train', 'valid', 'test', 'evaluation'
             return NegSampleEvalDataLoader
 
 
-def _get_AE_dataloader(config, phase: Literal['train', 'valid', 'test', 'evaluation']):
+def _get_AE_dataloader(config, phase: Literal["train", "valid", "test", "evaluation"]):
     """Customized function for VAE models to get correct dataloader class.
 
     Args:
@@ -270,11 +263,14 @@ def _get_AE_dataloader(config, phase: Literal['train', 'valid', 'test', 'evaluat
     Returns:
         type: The dataloader class that meets the requirements in :attr:`config` and :attr:`phase`.
     """
-    if phase not in ['train', 'valid', 'test', 'evaluation']:
+    if phase not in ["train", "valid", "test", "evaluation"]:
         raise ValueError("`phase` can only be 'train', 'valid', 'test' or 'evaluation'.")
-    if phase == 'evaluation':
-        phase = 'test'
-        warnings.warn("'evaluation' has been deprecated, please use 'valid' or 'test' instead.", DeprecationWarning)
+    if phase == "evaluation":
+        phase = "test"
+        warnings.warn(
+            "'evaluation' has been deprecated, please use 'valid' or 'test' instead.",
+            DeprecationWarning,
+        )
 
     if phase == "train":
         return UserDataLoader
@@ -286,7 +282,15 @@ def _get_AE_dataloader(config, phase: Literal['train', 'valid', 'test', 'evaluat
             return NegSampleEvalDataLoader
 
 
-def _create_sampler(dataset, built_datasets, distribution: str, repeatable: bool, alpha: float = 1.0, base_sampler=None):
+def _create_sampler(
+    dataset,
+    built_datasets,
+    distribution: str,
+    repeatable: bool,
+    alpha: float = 1.0,
+    base_sampler=None,
+):
+    # phases = ["train", "valid", "test", "oov"]
     phases = ["train", "valid", "test"]
     sampler = None
     if distribution != "none":
@@ -328,13 +332,36 @@ def create_samplers(config, dataset, built_datasets):
     train_neg_sample_args = config["train_neg_sample_args"]
     valid_neg_sample_args = config["valid_neg_sample_args"]
     test_neg_sample_args = config["test_neg_sample_args"]
-    repeatable = config["repeatable"]
-    base_sampler = _create_sampler(dataset, built_datasets, train_neg_sample_args["distribution"], repeatable, train_neg_sample_args["alpha"])
-    train_sampler = base_sampler.set_phase('train') if base_sampler else None
+    oov_neg_sample_args = config["oov_neg_sample_args"]
 
-    valid_sampler = _create_sampler(dataset, built_datasets, valid_neg_sample_args["distribution"], repeatable, base_sampler=base_sampler)
+    repeatable = config["repeatable"]
+    base_sampler = _create_sampler(
+        dataset,
+        built_datasets,
+        train_neg_sample_args["distribution"],
+        repeatable,
+        train_neg_sample_args["alpha"],
+    )
+    train_sampler = base_sampler.set_phase("train") if base_sampler else None
+
+    valid_sampler = _create_sampler(
+        dataset,
+        built_datasets,
+        valid_neg_sample_args["distribution"],
+        repeatable,
+        base_sampler=base_sampler,
+    )
     valid_sampler = valid_sampler.set_phase("valid") if valid_sampler else None
 
-    test_sampler = _create_sampler(dataset, built_datasets, test_neg_sample_args["distribution"], repeatable, base_sampler=base_sampler)
+    test_sampler = _create_sampler(
+        dataset,
+        built_datasets,
+        test_neg_sample_args["distribution"],
+        repeatable,
+        base_sampler=base_sampler,
+    )
     test_sampler = test_sampler.set_phase("test") if test_sampler else None
+
+    # TODO(willshiao): Ideally, we can use a modified sampler here to sample OOV items.
+    # However, I was unable to figure out a good way to do this without major refactoring.
     return train_sampler, valid_sampler, test_sampler

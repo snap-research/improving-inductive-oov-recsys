@@ -44,19 +44,21 @@ class AbstractDataLoader(torch.utils.data.DataLoader):
         _batch_size (int): The max interaction number for all batch.
     """
 
-    def __init__(self, config, dataset, sampler, shuffle=False):
+    def __init__(self, config, dataset, sampler, shuffle=False, index_sampler=None):
         self.shuffle = shuffle
         self.config = config
         self._dataset = dataset
         self._sampler = sampler
         self._batch_size = self.step = self.model = None
         self._init_batch_size_and_step()
-        index_sampler = None
+
         self.generator = torch.Generator()
         self.generator.manual_seed(config["seed"])
         self.transform = construct_transform(config)
         self.is_sequential = config["MODEL_TYPE"] == ModelType.SEQUENTIAL
         if not config["single_spec"]:
+            if index_sampler is not None:
+                raise ValueError('`index_sampler` should be None when `single_spec` is False.')
             index_sampler = torch.utils.data.distributed.DistributedSampler(
                 list(range(self.sample_size)), shuffle=shuffle, drop_last=False
             )
@@ -125,9 +127,9 @@ class NegSampleDataLoader(AbstractDataLoader):
         shuffle (bool, optional): Whether the dataloader will be shuffle after a round. Defaults to ``False``.
     """
 
-    def __init__(self, config, dataset, sampler, shuffle=True):
+    def __init__(self, config, dataset, sampler, shuffle=True, index_sampler=None):
         self.logger = getLogger()
-        super().__init__(config, dataset, sampler, shuffle=shuffle)
+        super().__init__(config, dataset, sampler, shuffle=shuffle, index_sampler=index_sampler)
 
     def _set_neg_sample_args(self, config, dataset, dl_format, neg_sample_args):
         self.uid_field = dataset.uid_field
@@ -136,8 +138,8 @@ class NegSampleDataLoader(AbstractDataLoader):
         self.neg_sample_args = neg_sample_args
         self.times = 1
         if (
-            self.neg_sample_args["distribution"] == "uniform"
-            or "popularity"
+            (self.neg_sample_args["distribution"] == "uniform"
+            or self.neg_sample_args["distribution"] == "popularity")
             and self.neg_sample_args["sample_num"] != "none"
         ):
             self.neg_sample_num = self.neg_sample_args["sample_num"]
