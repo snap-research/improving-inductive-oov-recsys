@@ -16,6 +16,8 @@ import copy
 
 
 class DirectAU(InductiveGeneralRecommender):
+    """https://arxiv.org/pdf/2206.12811
+    """
     input_type = InputType.POINTWISE
 
     def __init__(self, config, dataset, inductive_mapper: Union[AbstractInductiveMapper, None] = None, inductive_embedder: Union[AbstractInductiveEmbedder, None] = None):
