@@ -4,7 +4,7 @@ This repository contains the code for the paper ["Improving Out-of-Vocabulary Ha
 
 ## Setup
 
-First, install our local copy of RecBole. You will need to uninstall the original RecBole first (if already installed).
+First, install our local copy of RecBole. You will need to uninstall the original RecBole first (if already installed). (This framework is a major extension to RecBole https://github.com/RUCAIBox/RecBole. Recbole provides the basic framework to evaluate on recommendation system models with standard datasets. This framework enables inductive training and evaluation, as well as datasets.)
 
 ```bash
 pip uninstall recbole
