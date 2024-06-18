@@ -4,7 +4,7 @@ from torch import nn
 
 class AbstractInductiveEmbedder(nn.Module):
     """
-    Abstract base class for inductive embedders.
+    Abstract base class for inductive embedders. Embed user/item IDs.
 
     Args:
         user_features (list): List of user features.
